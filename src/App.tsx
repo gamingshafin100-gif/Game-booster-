@@ -17,19 +17,18 @@ import {
   List,
   Trash2,
   ArrowUpDown,
-  X
+  X,
+  Home,
+  Volume2,
+  VolumeX,
+  Bot
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { speak, analyzeSystem } from './services/geminiService';
-
-/**
- * Utility for Tailwind class merging
- */
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { AiChat } from './components/AiChat';
+import { cn } from './lib/utils';
 
 type BoosterMode = 'power-save' | 'medium' | 'performance' | 'ultra';
 
@@ -88,16 +87,16 @@ const MODES: Record<BoosterMode, ModeConfig> = {
  * Simulated Performance Metric Component
  */
 const Metric = ({ label, value, unit, color, accentColor, isUltra }: { label: string; value: number; unit: string; color: string; accentColor: string; isUltra: boolean }) => (
-  <div className="bg-zinc-900/50 border border-zinc-800 p-4 rounded-xl flex flex-col gap-1 backdrop-blur-sm">
+  <div className="bg-zinc-900/50 border border-zinc-800 p-3 sm:p-4 rounded-xl flex flex-col gap-0.5 sm:gap-1 backdrop-blur-sm">
     <div className="flex justify-between items-center">
-      <span className="text-xs font-mono text-zinc-500 uppercase tracking-wider">{label}</span>
-      <div className={cn("w-2 h-2 rounded-full animate-pulse", color)} />
+      <span className="text-[10px] sm:text-xs font-mono text-zinc-500 uppercase tracking-wider">{label}</span>
+      <div className={cn("w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full animate-pulse", color)} />
     </div>
     <div className="flex items-baseline gap-1">
-      <span className="text-2xl font-mono font-bold text-white tracking-tighter">{value}</span>
-      <span className="text-xs font-mono text-zinc-500">{unit}</span>
+      <span className="text-xl sm:text-2xl font-mono font-bold text-white tracking-tighter">{value}</span>
+      <span className="text-[10px] sm:text-xs font-mono text-zinc-500">{unit}</span>
     </div>
-    <div className="w-full bg-zinc-800 h-1 mt-2 rounded-full overflow-hidden">
+    <div className="w-full bg-zinc-800 h-1 mt-1 sm:mt-2 rounded-full overflow-hidden">
       <motion.div 
         className={cn("h-full transition-colors duration-700", color)}
         initial={{ width: 0 }}
@@ -105,6 +104,27 @@ const Metric = ({ label, value, unit, color, accentColor, isUltra }: { label: st
         transition={{ duration: 0.5 }}
       />
     </div>
+  </div>
+);
+
+const VoiceVisualizer = ({ active, color }: { active: boolean; color: string }) => (
+  <div className="flex items-center gap-0.5 h-4 px-2">
+    {[...Array(5)].map((_, i) => (
+      <motion.div
+        key={i}
+        animate={active ? {
+          height: [4, 12, 6, 16, 4][i % 5],
+          opacity: [0.3, 1, 0.5, 1, 0.3][i % 5]
+        } : { height: 4, opacity: 0.2 }}
+        transition={{
+          repeat: Infinity,
+          duration: 0.6,
+          delay: i * 0.1,
+          ease: "easeInOut"
+        }}
+        className={cn("w-0.5 rounded-full", color)}
+      />
+    ))}
   </div>
 );
 
@@ -132,6 +152,25 @@ export default function App() {
     { id: 7, name: 'NVIDIA Overlay', usage: 2, ram: 95, status: 'running' },
   ]);
   const [isGameRunning, setIsGameRunning] = useState(false);
+  const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const lastAnnouncementTime = React.useRef<number>(0);
+
+  const safeSpeak = useCallback(async (text: string, force: boolean = false) => {
+    if (!isVoiceEnabled) return;
+    
+    const now = Date.now();
+    // Increased cooldown to 15 seconds to prevent rate limiting
+    if (!force && now - lastAnnouncementTime.current < 15000) return;
+    
+    lastAnnouncementTime.current = now;
+    await speak(
+      text, 
+      () => setIsSpeaking(true), 
+      () => setIsSpeaking(false)
+    );
+  }, [isVoiceEnabled]);
 
   const toggleGameSimulation = () => {
     setIsGameRunning(!isGameRunning);
@@ -233,19 +272,19 @@ export default function App() {
     if (silent) return;
 
     if (mode === 'ultra') {
-      await speak("Beast Mode: Second Formation. All systems overdriven.");
+      await safeSpeak("Beast Mode: Second Formation. All systems overdriven.", true);
       setProcesses(prev => prev.map(p => ({ ...p, status: 'optimized', usage: Math.floor(p.usage * 0.4) })));
     } else if (mode === 'performance') {
-      await speak("High Performance mode engaged. Hardware limits expanded.");
+      await safeSpeak("High Performance mode engaged. Hardware limits expanded.", true);
       setProcesses(prev => prev.map(p => ({ ...p, status: 'running', usage: Math.floor(p.usage * 1.2) })));
     } else if (mode === 'medium') {
       // Balanced mode is silent as requested
       setProcesses(prev => prev.map(p => ({ ...p, status: 'running', usage: Math.floor(p.usage * 1.5) })));
     } else {
-      await speak(`${mode.toUpperCase()} mode engaged.`);
+      await safeSpeak(`${mode.toUpperCase()} mode engaged.`, true);
       setProcesses(prev => prev.map(p => ({ ...p, status: 'running', usage: Math.floor(p.usage * 1.5) })));
     }
-  }, [currentMode]);
+  }, [currentMode, safeSpeak]);
 
   const runAiOptimization = async (isAuto: boolean = false) => {
     setIsAiAnalyzing(true);
@@ -260,7 +299,7 @@ export default function App() {
         // If it's an auto-switch and the mode is different, announce the reason
         if (isAuto && targetMode !== currentMode) {
           setAiReason(`AUTO-OPTIMIZE: ${result.reason}`);
-          await speak(`System health alert. ${result.reason}. Switching to ${MODES[targetMode].name} mode.`);
+          await safeSpeak(`System health alert. ${result.reason}. Switching to ${MODES[targetMode].name} mode.`);
           await switchMode(targetMode, true); // Switch silently since we already spoke the reason
         } else {
           setAiReason(result.reason);
@@ -292,7 +331,7 @@ export default function App() {
 
   const killAllNonEssential = () => {
     setProcesses(prev => prev.filter(p => p.name === 'System Core' || p.id === 99));
-    speak("Terminating all non-essential background processes. System resources reclaimed.");
+    safeSpeak("Terminating all non-essential background processes. System resources reclaimed.", true);
   };
 
   const toggleSort = (key: 'usage' | 'ram') => {
@@ -306,7 +345,7 @@ export default function App() {
 
   return (
     <div className={cn(
-      "min-h-screen bg-black text-zinc-300 font-sans transition-all duration-1000 relative overflow-x-hidden",
+      "min-h-screen bg-black text-zinc-300 font-sans transition-all duration-1000 relative overflow-x-hidden flex flex-col",
       currentMode === 'ultra' ? "selection:bg-red-500/30" : 
       currentMode === 'performance' ? "selection:bg-emerald-500/30" :
       currentMode === 'power-save' ? "selection:bg-blue-500/30" : "selection:bg-amber-500/30"
@@ -351,71 +390,87 @@ export default function App() {
         )} />
       </div>
 
-      <main className="relative z-10 max-w-5xl mx-auto px-6 py-12">
+      <main className="relative z-10 flex-grow max-w-5xl mx-auto w-full px-4 sm:px-6 py-6 sm:py-12 mb-20 sm:mb-0">
         {/* Header */}
-        <header className="flex justify-between items-end mb-12">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <div className={cn(
-                "w-8 h-8 rounded-lg flex items-center justify-center transition-colors duration-700",
-                modeConfig.color
-              )}>
-                <modeConfig.icon className="w-5 h-5 text-black fill-current" />
+        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-8 sm:mb-12">
+          <div className="flex justify-between items-center w-full sm:w-auto">
+            <div>
+              <div className="flex items-center gap-2 mb-1 sm:mb-2">
+                <div className={cn(
+                  "w-6 h-6 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center transition-colors duration-700",
+                  modeConfig.color
+                )}>
+                  <modeConfig.icon className="w-4 h-4 sm:w-5 sm:h-5 text-black fill-current" />
+                </div>
+                <h1 className="text-lg sm:text-xl font-mono font-bold text-white tracking-widest uppercase">Apex Booster</h1>
+                <VoiceVisualizer active={isSpeaking} color={modeConfig.color} />
+                <div className={cn(
+                  "px-2 py-0.5 rounded text-[8px] sm:text-[10px] font-black uppercase tracking-tighter ml-1 sm:ml-2",
+                  systemHealth === 'optimal' ? "bg-emerald-500 text-black" :
+                  systemHealth === 'warning' ? "bg-amber-500 text-black animate-pulse" :
+                  "bg-red-600 text-white animate-bounce"
+                )}>
+                  {systemHealth}
+                </div>
               </div>
-              <h1 className="text-xl font-mono font-bold text-white tracking-widest uppercase">Apex Booster</h1>
-              <div className={cn(
-                "px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter ml-2",
-                systemHealth === 'optimal' ? "bg-emerald-500 text-black" :
-                systemHealth === 'warning' ? "bg-amber-500 text-black animate-pulse" :
-                "bg-red-600 text-white animate-bounce"
-              )}>
-                {systemHealth}
-              </div>
+              <p className="text-[10px] sm:text-xs font-mono text-zinc-500 uppercase tracking-widest">System Optimization Interface v2.4.0</p>
             </div>
-            <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest">System Optimization Interface v2.4.0</p>
-          </div>
-          <div className="flex gap-4">
+            <button className="sm:hidden p-2 text-zinc-400 hover:text-white">
+              <Settings className="w-5 h-5" />
+            </button>
             <button 
-              onClick={toggleGameSimulation}
+              onClick={() => setIsChatOpen(true)}
+              className="p-2 text-zinc-400 hover:text-white transition-colors relative group"
+            >
+              <Bot className={cn("w-5 h-5", isChatOpen && modeConfig.accentColor)} />
+              <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping opacity-75 group-hover:opacity-100" />
+            </button>
+          </div>
+          
+            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+              <button 
+                onClick={() => setIsVoiceEnabled(!isVoiceEnabled)}
+                className={cn(
+                  "flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 sm:py-3 rounded-none font-mono text-[10px] sm:text-xs uppercase tracking-wider transition-all border-2",
+                  "shadow-[2px_2px_0px_0px_rgba(0,0,0,0.5)] sm:shadow-[4px_4px_0px_0px_rgba(0,0,0,0.5)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
+                  isVoiceEnabled 
+                    ? "bg-emerald-500/10 border-emerald-500 text-emerald-500 hover:bg-emerald-500/20" 
+                    : "bg-zinc-900 border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+                )}
+                title={isVoiceEnabled ? "Disable Voice" : "Enable Voice"}
+              >
+                {isVoiceEnabled ? <Volume2 className="w-3 h-3 sm:w-4 sm:h-4" /> : <VolumeX className="w-3 h-3 sm:w-4 sm:h-4" />}
+                {isVoiceEnabled ? "VOICE" : "MUTE"}
+              </button>
+              <button 
+                onClick={toggleGameSimulation}
               className={cn(
-                "flex items-center gap-2 px-6 py-3 rounded-none font-mono text-xs uppercase tracking-wider transition-all border-2",
-                "shadow-[4px_4px_0px_0px_rgba(0,0,0,0.5)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
+                "flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-6 py-2 sm:py-3 rounded-none font-mono text-[10px] sm:text-xs uppercase tracking-wider transition-all border-2",
+                "shadow-[2px_2px_0px_0px_rgba(0,0,0,0.5)] sm:shadow-[4px_4px_0px_0px_rgba(0,0,0,0.5)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
                 isGameRunning 
                   ? "bg-red-500/10 border-red-500 text-red-500 hover:bg-red-500/20" 
                   : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-800 hover:text-white"
               )}
             >
-              <Rocket className={cn("w-4 h-4", isGameRunning && "animate-bounce")} />
-              {isGameRunning ? "CLOSE GAME" : "LAUNCH GAME"}
+              <Rocket className={cn("w-3 h-3 sm:w-4 sm:h-4", isGameRunning && "animate-bounce")} />
+              {isGameRunning ? "CLOSE" : "LAUNCH"}
             </button>
             <button 
               onClick={() => setIsAutoOptimizationEnabled(!isAutoOptimizationEnabled)}
               className={cn(
-                "flex items-center gap-2 px-6 py-3 rounded-none font-mono text-xs uppercase tracking-wider transition-all border-2",
-                "shadow-[4px_4px_0px_0px_rgba(0,0,0,0.5)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
+                "flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-6 py-2 sm:py-3 rounded-none font-mono text-[10px] sm:text-xs uppercase tracking-wider transition-all border-2",
+                "shadow-[2px_2px_0px_0px_rgba(0,0,0,0.5)] sm:shadow-[4px_4px_0px_0px_rgba(0,0,0,0.5)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
                 isAutoOptimizationEnabled 
                   ? "bg-emerald-500/10 border-emerald-500 text-emerald-500 hover:bg-emerald-500/20" 
                   : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-800 hover:text-white"
               )}
             >
-              <ShieldCheck className={cn("w-4 h-4", isAutoOptimizationEnabled && "animate-pulse")} />
+              <ShieldCheck className={cn("w-3 h-3 sm:w-4 sm:h-4", isAutoOptimizationEnabled && "animate-pulse")} />
               {isAutoOptimizationEnabled ? "AUTO: ON" : "AUTO: OFF"}
             </button>
             <button 
-              onClick={() => runAiOptimization(false)}
-              disabled={isAiAnalyzing}
-              className={cn(
-                "flex items-center gap-2 px-6 py-3 rounded-none font-mono text-xs uppercase tracking-wider transition-all border-2",
-                "shadow-[4px_4px_0px_0px_rgba(0,0,0,0.5)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
-                isAiAnalyzing ? "bg-zinc-800 text-zinc-500 border-zinc-900" : "bg-white text-black font-black border-white/20 hover:bg-zinc-200"
-              )}
-            >
-              <Sparkles className={cn("w-4 h-4", isAiAnalyzing && "animate-spin")} />
-              {isAiAnalyzing ? "ANALYZING..." : "AI OPTIMIZE"}
-            </button>
-            <button 
               onClick={() => setActiveView(activeView === 'dashboard' ? 'tasks' : 'dashboard')}
-              className="p-3 bg-zinc-900 border-2 border-zinc-800 hover:bg-zinc-800 transition-colors shadow-[4px_4px_0px_0px_rgba(0,0,0,0.5)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]"
+              className="hidden sm:block p-3 bg-zinc-900 border-2 border-zinc-800 hover:bg-zinc-800 transition-colors shadow-[4px_4px_0px_0px_rgba(0,0,0,0.5)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]"
               title={activeView === 'dashboard' ? "Task Manager" : "Dashboard"}
             >
               {activeView === 'dashboard' ? <List className="w-5 h-5" /> : <Gauge className="w-5 h-5" />}
@@ -505,7 +560,7 @@ export default function App() {
                 </p>
                 
                 {/* Mode Selector */}
-                <div className="flex flex-wrap justify-center gap-4 mt-8">
+                <div className="grid grid-cols-2 sm:flex sm:flex-wrap justify-center gap-3 sm:gap-4 mt-8 w-full max-w-md mx-auto">
                   {(Object.keys(MODES) as BoosterMode[]).map(mode => {
                     const config = MODES[mode];
                     return (
@@ -513,8 +568,8 @@ export default function App() {
                         key={mode}
                         onClick={() => switchMode(mode)}
                         className={cn(
-                          "px-8 py-4 rounded-none font-mono text-[11px] uppercase tracking-[0.2em] transition-all relative border-2",
-                          "shadow-[4px_4px_0px_0px_rgba(0,0,0,0.5)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
+                          "px-4 sm:px-8 py-3 sm:py-4 rounded-none font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.1em] sm:tracking-[0.2em] transition-all relative border-2",
+                          "shadow-[2px_2px_0px_0px_rgba(0,0,0,0.5)] sm:shadow-[4px_4px_0px_0px_rgba(0,0,0,0.5)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
                           currentMode === mode 
                             ? cn("text-black font-black", config.color, "border-white/20") 
                             : "bg-zinc-900 text-zinc-500 border-zinc-800 hover:bg-zinc-800/80 hover:text-zinc-300"
@@ -524,6 +579,34 @@ export default function App() {
                       </button>
                     );
                   })}
+                </div>
+
+                {/* Main Action Buttons */}
+                <div className="flex flex-col gap-4 mt-10 w-full max-w-md mx-auto">
+                  <button 
+                    onClick={() => runAiOptimization(false)}
+                    disabled={isAiAnalyzing}
+                    className={cn(
+                      "w-full flex items-center justify-center gap-3 px-8 py-4 rounded-none font-mono text-sm uppercase tracking-[0.3em] transition-all border-2",
+                      "shadow-[4px_4px_0px_0px_rgba(0,0,0,0.5)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
+                      isAiAnalyzing ? "bg-zinc-800 text-zinc-500 border-zinc-900" : "bg-white text-black font-black border-white/20 hover:bg-zinc-200"
+                    )}
+                  >
+                    <Sparkles className={cn("w-5 h-5", isAiAnalyzing && "animate-spin")} />
+                    {isAiAnalyzing ? "SYSTEM ANALYZING..." : "INITIALIZE OPTIMIZATION"}
+                  </button>
+                  
+                  <button 
+                    onClick={() => setIsChatOpen(true)}
+                    className={cn(
+                      "w-full flex items-center justify-center gap-3 px-8 py-4 rounded-none font-mono text-sm uppercase tracking-[0.3em] transition-all border-2",
+                      "shadow-[4px_4px_0px_0px_rgba(0,0,0,0.5)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
+                      "bg-zinc-900 text-white font-bold border-zinc-800 hover:bg-zinc-800 hover:border-zinc-700"
+                    )}
+                  >
+                    <Bot className="w-5 h-5" />
+                    OPEN AI COMMAND CORE
+                  </button>
                 </div>
               </div>
 
@@ -584,17 +667,20 @@ export default function App() {
           ) : (
             <motion.div 
               key="tasks"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3 }}
-              className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-8 backdrop-blur-md min-h-[500px] relative overflow-hidden"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              className="relative bg-zinc-900/80 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 sm:p-8 overflow-hidden shadow-2xl"
             >
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-zinc-700 to-transparent opacity-50" />
               
+              {/* Task Manager Header */}
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
                 <div>
-                  <h2 className="text-2xl font-mono font-bold text-white uppercase tracking-widest">Task Manager</h2>
+                  <h2 className="text-2xl font-mono font-bold text-white uppercase tracking-widest flex items-center gap-3">
+                    <List className="w-6 h-6 text-emerald-500" />
+                    Task Manager
+                  </h2>
                   <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mt-1">Manage active system processes</p>
                 </div>
                 <div className="flex flex-wrap gap-2 w-full sm:w-auto">
@@ -638,7 +724,7 @@ export default function App() {
                   </button>
                   <button 
                     onClick={killAllNonEssential}
-                    className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-mono border border-red-500/50 text-red-500/70 hover:bg-red-500/10 rounded transition-all"
+                    className="flex items-center gap-2 px-4 py-1.5 text-[10px] font-mono border border-red-500 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg transition-all shadow-[0_0_15px_rgba(239,68,68,0.2)]"
                   >
                     <Trash2 className="w-3 h-3" />
                     PURGE ALL
@@ -646,43 +732,90 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="space-y-2 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+              {/* System Summary Mini-Dashboard */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+                <div className="bg-black/40 border border-white/5 p-3 rounded-xl">
+                  <p className="text-[8px] font-mono text-zinc-500 uppercase mb-1">Total Processes</p>
+                  <p className="text-xl font-mono font-bold text-white">{processes.length}</p>
+                </div>
+                <div className="bg-black/40 border border-white/5 p-3 rounded-xl">
+                  <p className="text-[8px] font-mono text-zinc-500 uppercase mb-1">CPU Overhead</p>
+                  <p className="text-xl font-mono font-bold text-emerald-500">{Math.round(processes.reduce((acc, p) => acc + p.usage, 0))}%</p>
+                </div>
+                <div className="bg-black/40 border border-white/5 p-3 rounded-xl">
+                  <p className="text-[8px] font-mono text-zinc-500 uppercase mb-1">RAM Committed</p>
+                  <p className="text-xl font-mono font-bold text-blue-500">{(processes.reduce((acc, p) => acc + p.ram, 0) / 1024).toFixed(1)}GB</p>
+                </div>
+                <div className="bg-black/40 border border-white/5 p-3 rounded-xl">
+                  <p className="text-[8px] font-mono text-zinc-500 uppercase mb-1">System Health</p>
+                  <p className="text-xl font-mono font-bold text-emerald-500">OPTIMAL</p>
+                </div>
+              </div>
+
+              {/* Task Manager GUI: Tile Grid */}
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar pb-8">
                 {sortedProcesses.map(process => (
                   <motion.div 
                     layout
                     key={process.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex items-center justify-between p-4 bg-black/20 border border-white/5 rounded-xl hover:border-white/10 transition-colors group"
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => killProcess(process.id)}
+                    className={cn(
+                      "relative aspect-square flex flex-col items-center justify-center p-2 bg-black/40 border rounded-2xl transition-all cursor-pointer group",
+                      process.status === 'optimized' ? "border-emerald-500/30 bg-emerald-500/5 shadow-[0_0_15px_rgba(16,185,129,0.1)]" : "border-white/5 hover:border-white/20"
+                    )}
                   >
-                    <div className="flex items-center gap-4">
-                      <div className={cn(
-                        "w-2 h-2 rounded-full",
-                        process.status === 'optimized' ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : "bg-amber-500"
-                      )} />
-                      <div>
-                        <p className="text-sm font-mono font-bold text-white uppercase">{process.name}</p>
-                        <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-tighter">PID: {process.id * 1234} • {process.status}</p>
-                      </div>
+                    {/* CPU Usage Ring */}
+                    <div className="absolute inset-1 pointer-events-none">
+                      <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                        <circle 
+                          cx="50" cy="50" r="45" 
+                          fill="none" 
+                          stroke="currentColor" 
+                          strokeWidth="2" 
+                          className="text-zinc-800/30"
+                        />
+                        <motion.circle 
+                          cx="50" cy="50" r="45" 
+                          fill="none" 
+                          stroke="currentColor" 
+                          strokeWidth="2" 
+                          strokeDasharray="283"
+                          animate={{ strokeDashoffset: 283 - (283 * process.usage) / 100 }}
+                          className={cn(
+                            "transition-colors duration-1000",
+                            process.usage > 70 ? "text-red-500" : process.usage > 40 ? "text-amber-500" : "text-emerald-500"
+                          )}
+                        />
+                      </svg>
                     </div>
-                    
-                    <div className="flex items-center gap-4 sm:gap-12">
-                      <div className="text-right hidden sm:block">
-                        <p className="text-xs font-mono text-white">{process.usage}%</p>
-                        <p className="text-[10px] font-mono text-zinc-500 uppercase">CPU</p>
-                      </div>
-                      <div className="text-right w-20 sm:w-24">
-                        <p className="text-xs font-mono text-white">{process.ram} MB</p>
-                        <p className="text-[10px] font-mono text-zinc-500 uppercase">RAM</p>
-                      </div>
-                      <button 
-                        onClick={() => killProcess(process.id)}
-                        className="p-2 text-zinc-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all sm:opacity-0 group-hover:opacity-100"
-                        title="Kill Process"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+
+                    <div className={cn(
+                      "w-10 h-10 rounded-xl flex items-center justify-center bg-zinc-900/80 border border-white/5 mb-2 transition-colors relative z-10",
+                      process.status === 'optimized' ? "text-emerald-500 border-emerald-500/20" : "text-zinc-500"
+                    )}>
+                      <Cpu className="w-5 h-5" />
                     </div>
+
+                    <p className="text-[10px] font-mono font-bold text-white uppercase truncate w-full text-center px-1 relative z-10">
+                      {process.name.split(' ')[0]}
+                    </p>
+                    <p className="text-[8px] font-mono text-zinc-500 uppercase tracking-tighter relative z-10">
+                      {process.usage}%
+                    </p>
+
+                    {/* Hover Kill Overlay */}
+                    <div className="absolute inset-0 bg-red-600/90 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center rounded-2xl z-20">
+                      <Trash2 className="w-6 h-6 text-white mb-1" />
+                      <span className="text-[8px] font-black text-white uppercase">PURGE</span>
+                    </div>
+
+                    {process.status === 'optimized' && (
+                      <div className="absolute top-2 right-2 w-1.5 h-1.5 bg-emerald-500 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+                    )}
                   </motion.div>
                 ))}
               </div>
@@ -692,23 +825,41 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* Footer Stats */}
-        <footer className="mt-12 pt-6 border-t border-zinc-800 flex flex-wrap justify-between gap-6 text-[10px] font-mono text-zinc-600 uppercase tracking-[0.2em]">
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1"><Database className="w-3 h-3" /> RAM: {systemInfo.ram}</span>
-            <span className="flex items-center gap-1"><Layers className="w-3 h-3" /> ROM: {systemInfo.storage}</span>
-            <span className="flex items-center gap-1"><Wind className="w-3 h-3" /> FAN: 2400 RPM</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className={cn(
-              "flex items-center gap-1 transition-colors duration-700",
-              currentMode === 'ultra' ? "text-red-500/50" : "text-emerald-500/50"
-            )}><Activity className="w-3 h-3" /> SYSTEM STABLE</span>
-            <span>UPTIME: 04:12:44</span>
-          </div>
-        </footer>
       </main>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-zinc-950/80 backdrop-blur-xl border-t border-white/5 z-50 px-12 py-3 flex justify-between items-center">
+        <button 
+          onClick={() => setActiveView('dashboard')}
+          className={cn(
+            "flex flex-col items-center gap-1 transition-colors",
+            activeView === 'dashboard' ? modeConfig.accentColor : "text-zinc-500"
+          )}
+        >
+          <Home className="w-6 h-6" />
+          <span className="text-[8px] font-mono font-bold uppercase tracking-widest">Home</span>
+        </button>
+        <div className="w-12 h-12 -mt-10 bg-zinc-900 border-4 border-black rounded-full flex items-center justify-center shadow-xl">
+          <div className={cn("w-8 h-8 rounded-full animate-pulse", modeConfig.color)} />
+        </div>
+        <button 
+          onClick={() => setActiveView('tasks')}
+          className={cn(
+            "flex flex-col items-center gap-1 transition-colors",
+            activeView === 'tasks' ? modeConfig.accentColor : "text-zinc-500"
+          )}
+        >
+          <List className="w-6 h-6" />
+          <span className="text-[8px] font-mono font-bold uppercase tracking-widest">Tasks</span>
+        </button>
+      </nav>
+      <AiChat 
+        isOpen={isChatOpen} 
+        onClose={() => setIsChatOpen(false)} 
+        accentColor={modeConfig.color}
+        onSpeakStart={() => setIsSpeaking(true)}
+        onSpeakEnd={() => setIsSpeaking(false)}
+      />
     </div>
   );
 }
